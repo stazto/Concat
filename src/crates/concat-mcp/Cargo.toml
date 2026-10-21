@@ -13,6 +13,9 @@ concat-api = { workspace = true, features = ["schema"] }
 # The window's server, reached as a client, and the file that says where
 # it is.
 concat-server.workspace = true
+# Text-to-speech and voice cloning, which the window drives directly and the
+# API does not cover: the speech_* tools call it in this process.
+concat-speech.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]

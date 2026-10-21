@@ -63,6 +63,12 @@ pub enum Action {
     Mask,
     /// `preview.frame`, as an image.
     PreviewFrame,
+    /// Models and voices for speech ([`crate::speech`], not an API method).
+    SpeechStatus,
+    /// Downloads a speech model.
+    SpeechDownload,
+    /// Reads text aloud, in a stock voice or one cloned from a recording.
+    SpeechSynthesize,
 }
 
 /// How a reply is shown to the agent.
@@ -451,6 +457,33 @@ pub fn catalogue() -> Vec<Tool> {
             idempotent: true,
             action: Action::PreviewFrame,
         },
+        Tool {
+            name: "speech_status",
+            title: "Speech models and voices",
+            description: "Every text-to-speech model with whether it is downloaded, every stock voice with its id and family, and the clone voice of each family (`cloneVoices`). Call it before speech_synthesize to pick a downloaded model and a voice of its family.",
+            read_only: true,
+            destructive: false,
+            idempotent: true,
+            action: Action::SpeechStatus,
+        },
+        Tool {
+            name: "speech_model_download",
+            title: "Download a speech model",
+            description: "Downloads one model from speech_status into Concat's models folder, as Settings > Speech does, and waits until it is unpacked. Models are hundreds of MB; a model already on disk returns at once.",
+            read_only: false,
+            destructive: false,
+            idempotent: true,
+            action: Action::SpeechDownload,
+        },
+        Tool {
+            name: "speech_synthesize",
+            title: "Synthesize speech",
+            description: "Reads `text` aloud with a downloaded model and a voice of its family, writing a WAV into the project's audio/ folder, and returns its `path` and `duration` in seconds. For a cloned voice use the family's clone voice id (cloneVoices in speech_status) and `referencePath`, a recording of the voice (Chatterbox needs at least five seconds of clean speech). Put the WAV on the timeline with media_import and clip_add.",
+            read_only: false,
+            destructive: false,
+            idempotent: false,
+            action: Action::SpeechSynthesize,
+        },
     ]
 }
 
@@ -595,6 +628,9 @@ fn input_schema(schemas: &Schemas, tool: &Tool) -> Option<Value> {
             Some(schema)
         }
         Action::PreviewFrame => schemas.method("preview.frame"),
+        Action::SpeechStatus => Some(crate::speech::status_schema()),
+        Action::SpeechDownload => Some(crate::speech::download_schema()),
+        Action::SpeechSynthesize => Some(crate::speech::synthesize_schema()),
         Action::Mask => {
             let update = schemas.command("updateClip")?;
             let mut mask = schemas.def("ClipMask")?;
@@ -704,6 +740,15 @@ fn run(tool: &Tool, arguments: Value, context: Context<'_>) -> Result<Outcome, A
         }
         Action::ExportWait => export_wait(arguments, backend, context.cancelled, context.progress),
         Action::PreviewFrame => preview(arguments, backend),
+        Action::SpeechStatus => crate::speech::status().map(Outcome::json),
+        Action::SpeechDownload => {
+            crate::speech::download(arguments, context.cancelled, context.progress)
+                .map(Outcome::json)
+        }
+        Action::SpeechSynthesize => {
+            crate::speech::synthesize(arguments, context.cancelled, context.progress)
+                .map(Outcome::json)
+        }
         Action::Mask => {
             let result = backend.call(mask(arguments)?)?;
             Ok(Outcome::json(summary::view(&result)))
@@ -1050,6 +1095,15 @@ mod tests {
                 "preview_frame",
                 json!({ "path": "/tmp/Cut", "time": 1.5, "width": 320, "height": 180 }),
             ),
+            ("speech_status", json!({})),
+            (
+                "speech_model_download",
+                json!({ "modelId": "kokoro-int8-multi-lang-v1_0" }),
+            ),
+            (
+                "speech_synthesize",
+                json!({ "project": "/tmp/Cut", "text": "Hello.", "modelId": "chatterbox", "voice": 2099, "referencePath": "/tmp/me.wav" }),
+            ),
         ]
     }
 
@@ -1105,6 +1159,10 @@ mod tests {
                 }
                 Action::PreviewFrame => request("preview.frame", sample.clone()),
                 Action::Mask => mask(sample.clone()),
+                // Speech runs in this process, not through the API: there is no request to build.
+                Action::SpeechStatus | Action::SpeechDownload | Action::SpeechSynthesize => {
+                    continue;
+                }
             };
             let built = built.unwrap_or_else(|error| panic!("{name}: {error}"));
             // Back again: the request as the API writes it fits the API's

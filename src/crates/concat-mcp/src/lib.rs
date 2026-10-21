@@ -20,6 +20,7 @@
 pub mod backend;
 pub mod protocol;
 pub mod schema;
+pub mod speech;
 pub mod summary;
 pub mod tools;
 

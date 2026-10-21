@@ -1271,6 +1271,7 @@ version = "0.2.8"
 dependencies = [
  "concat-api",
  "concat-server",
+ "concat-speech",
  "serde_json",
  "tempfile",
 ]

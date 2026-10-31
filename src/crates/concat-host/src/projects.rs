@@ -69,6 +69,14 @@ pub struct ProjectInfo {
     pub rate_num: i64,
     /// Denominator of the frame rate.
     pub rate_den: i64,
+    /// What shows where no picture covers the frame, for a project's first
+    /// timeline; see `VideoSettings::canvas`. Opaque black for a recents
+    /// entry written before there was one.
+    #[serde(
+        default = "opaque_black",
+        deserialize_with = "concat_project::model::rgba_array"
+    )]
+    pub canvas: [u8; 4],
     /// Milliseconds since the epoch.
     pub opened_at: u64,
 }
@@ -96,6 +104,22 @@ struct Video {
     height: u32,
     rate_num: i64,
     rate_den: i64,
+    /// `#rrggbb` or `#rrggbbaa`, left out while opaque black; see
+    /// `VideoSettings::canvas`.
+    #[serde(
+        default = "opaque_black",
+        skip_serializing_if = "is_black",
+        with = "concat_project::model::hex_rgba"
+    )]
+    canvas: [u8; 4],
+}
+
+fn opaque_black() -> [u8; 4] {
+    concat_project::model::OPAQUE_BLACK
+}
+
+fn is_black(rgba: &[u8; 4]) -> bool {
+    *rgba == concat_project::model::OPAQUE_BLACK
 }
 
 fn now_millis() -> u64 {
@@ -116,6 +140,7 @@ pub fn create(
     height: u32,
     rate_num: i64,
     rate_den: i64,
+    canvas: [u8; 4],
 ) -> Result<ProjectInfo, String> {
     let root = Path::new(location).join(folder_name(name));
     let manifest = root.join(MANIFEST);
@@ -143,6 +168,7 @@ pub fn create(
             height,
             rate_num,
             rate_den,
+            canvas,
         },
         rest: serde_json::Map::new(),
     };
@@ -159,6 +185,7 @@ pub fn create(
         height,
         rate_num,
         rate_den,
+        canvas,
         opened_at: now_millis(),
     })
 }
@@ -459,6 +486,7 @@ pub fn open(path: &str) -> Result<ProjectInfo, String> {
         name: document.name,
         width: document.video.width,
         height: document.video.height,
+        canvas: document.video.canvas,
         rate_num: document.video.rate_num,
         rate_den: document.video.rate_den,
         opened_at: now_millis(),
@@ -587,9 +615,26 @@ pub fn folder_name(name: &str) -> String {
     let trimmed = cleaned.trim_matches(['.', ' ']);
     if trimmed.is_empty() {
         "Untitled project".to_owned()
+    } else if is_device_name(trimmed) {
+        // A folder called `NUL` is made, but nothing can be written in it.
+        format!("_{trimmed}")
     } else {
         trimmed.to_owned()
     }
+}
+
+/// Whether Windows takes `name` for a device - `CON`, `NUL`, `COM1` and
+/// the rest - rather than a file. Only the part before the first dot
+/// counts, so `nul.mp4` is the device too.
+fn is_device_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).trim_end();
+    let stem = stem.to_ascii_uppercase();
+    let port = |prefix: &str| {
+        stem.strip_prefix(prefix).is_some_and(|number| {
+            matches!(number.as_bytes(), [b'0'..=b'9']) || matches!(number, "¹" | "²" | "³")
+        })
+    };
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL") || port("COM") || port("LPT")
 }
 
 /// Removes all cached artwork and waveforms from a project folder.
@@ -625,12 +670,49 @@ fn count_files(dir: &Path) -> usize {
 mod tests {
     use super::*;
 
+    /// A recents list written while the canvas was three channels still
+    /// reads, each entry opaque, and a four-channel one keeps its alpha
+    /// (#456): a list that failed to read would be an empty Start screen.
+    #[test]
+    fn recents_with_a_three_channel_canvas_still_read() {
+        let entry = |canvas: &str| {
+            format!(
+                r#"{{"path":"/p","name":"p","width":8,"height":8,"rateNum":30,"rateDen":1,"canvas":{canvas},"openedAt":1}}"#
+            )
+        };
+        let list = format!("[{},{}]", entry("[0,177,64]"), entry("[0,0,0,0]"));
+        let read: Vec<ProjectInfo> = serde_json::from_str(&list).expect("reads");
+        assert_eq!(read[0].canvas, [0, 177, 64, 255]);
+        assert_eq!(read[1].canvas, [0, 0, 0, 0]);
+    }
+
     #[test]
     fn sanitises_names_windows_would_reject() {
         assert_eq!(folder_name("My: Project?"), "My- Project-");
         assert_eq!(folder_name("  trailing.  "), "trailing");
         assert_eq!(folder_name("..."), "Untitled project");
         assert_eq!(folder_name(""), "Untitled project");
+    }
+
+    #[test]
+    fn device_names_get_a_folder_windows_will_open() {
+        for name in [
+            "NUL", "con", "Aux", "prn", "COM1", "lpt9", "nul.mp4", "CON .txt",
+        ] {
+            assert_eq!(folder_name(name), format!("_{name}"));
+        }
+        // Only the device names themselves, not names that start like them.
+        assert_eq!(folder_name("Console"), "Console");
+        assert_eq!(folder_name("COM10"), "COM10");
+        assert_eq!(folder_name("nul-and-void"), "nul-and-void");
+    }
+
+    #[test]
+    fn a_project_named_nul_is_created_and_reads_back() {
+        let location = scratch("device-name");
+        let info = create(&location, "nul", 1920, 1080, 30, 1, [0, 0, 0, 255]).expect("creates");
+        assert!(is_project(Path::new(&info.path)));
+        assert_eq!(info.name, "nul");
     }
 
     #[test]

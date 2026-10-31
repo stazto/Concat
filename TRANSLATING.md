@@ -46,9 +46,9 @@ restart the app; the language appears in Settings.
 
 | Platform | Folder |
 |---|---|
-| macOS | `~/Library/Application Support/app.concat.editor/locales/` |
-| Linux | `~/.config/app.concat.editor/locales/` |
-| Windows | `%APPDATA%\app.concat.editor\locales\` |
+| macOS | `~/Library/Application Support/org.standalones.concat/locales/` |
+| Linux | `~/.config/org.standalones.concat/locales/` |
+| Windows | `%APPDATA%\org.standalones.concat\locales\` |
 
 A file there with the code of a language Concat ships lays its lines over
 the shipped ones, so a correction is a file holding only the lines that
@@ -69,7 +69,7 @@ change.
 5. Open a pull request. Corrections to the languages Concat already ships
    are just as welcome as new ones.
 
-Concat ships 25 languages: English, العربية, বাংলা, Deutsch, Español, فارسی,
+Concat ships 26 languages: English, العربية, Azərbaycanca, বাংলা, Deutsch, Español, فارسی,
 Français, עברית, हिन्दी, Hrvatski, Bahasa Indonesia, Italiano, 日本語, 한국어,
 Nederlands, Polski, Português (Brasil), Русский, ไทย, Türkçe, Українська,
 اردو, Tiếng Việt, 简体中文 and 繁體中文.
